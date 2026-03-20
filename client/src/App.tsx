@@ -38,7 +38,7 @@ function App() {
         <CartProvider>
           <TooltipProvider>
             <Router hook={useHashLocation}>
-              <Toaster />
+              <Toaster position="top-right" duration={1500} />
               <CartDrawer />
               <div className="flex flex-col min-h-screen">
                 <Navbar />

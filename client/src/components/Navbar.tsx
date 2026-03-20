@@ -1,13 +1,40 @@
 import { Link, useLocation } from "wouter";
-import { ShoppingBag, Menu, X, User } from "lucide-react";
+import { ShoppingBag, Menu, X, User, Zap } from "lucide-react";
 import { useCart } from "@/contexts/CartContext";
-import { useState } from "react";
+import { products } from "@/lib/products";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
+
+function getRandomItems() {
+  // Pick 1-3 random products with random quantities 1-3
+  const count = Math.floor(Math.random() * 3) + 1;
+  const shuffled = [...products].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count).map((p) => ({
+    product: p,
+    quantity: Math.floor(Math.random() * 3) + 1,
+  }));
+}
 
 export default function Navbar() {
-  const { totalItems, setIsOpen } = useCart();
+  const { totalItems, setIsOpen, addItem } = useCart();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
+
+  const handleQuickCheckout = useCallback(() => {
+    const randomItems = getRandomItems();
+    let totalAdded = 0;
+    randomItems.forEach(({ product, quantity }) => {
+      addItem(product, quantity);
+      totalAdded += quantity;
+    });
+    const names = randomItems.map((i) => i.product.name).join(", ");
+    toast.success(`Added ${totalAdded} item${totalAdded > 1 ? "s" : ""} to cart`, {
+      description: names,
+    });
+    // Small delay so the toast shows before navigating
+    setTimeout(() => navigate("/checkout"), 300);
+  }, [addItem, navigate]);
 
   const navLinks = [
     { href: "/", label: "Home" },
@@ -40,6 +67,15 @@ export default function Navbar() {
               {link.label}
             </Link>
           ))}
+
+          {/* Quick Add & Checkout */}
+          <button
+            onClick={handleQuickCheckout}
+            className="flex items-center gap-1.5 text-sm font-medium tracking-wide uppercase text-primary-foreground bg-primary hover:bg-primary/90 px-3 py-1.5 rounded-md transition-colors"
+          >
+            <Zap size={14} />
+            <span>Quick Checkout</span>
+          </button>
         </nav>
 
         {/* Right Actions */}
@@ -103,6 +139,16 @@ export default function Navbar() {
                   {link.label}
                 </Link>
               ))}
+              <button
+                onClick={() => {
+                  setMobileOpen(false);
+                  handleQuickCheckout();
+                }}
+                className="flex items-center gap-1.5 text-sm font-medium tracking-wide uppercase py-2 text-primary"
+              >
+                <Zap size={14} />
+                Quick Checkout
+              </button>
               <Link
                 href="/register"
                 onClick={() => setMobileOpen(false)}
