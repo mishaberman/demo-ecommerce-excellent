@@ -1,27 +1,14 @@
 /**
- * Meta Pixel & Conversions API Helper
+ * Meta Pixel & Conversions API Helper — EXCELLENT Implementation
  * 
- * INTENTIONAL GAPS FOR SKILL TESTING:
- * 
- * PIXEL GAPS:
- * 1. No advanced matching data passed to fbq('init') — missing em, ph, fn, ln, etc.
- * 2. No noscript fallback in index.html
- * 3. Using placeholder pixel ID (123456789012345)
- * 4. Some events missing required parameters (e.g., Purchase missing content_ids sometimes)
- * 5. No event_id for deduplication with CAPI
- * 6. ViewContent event missing content_name parameter
- * 7. Search event not implemented
- * 8. No external_id parameter for cross-device tracking
- * 
- * CAPI GAPS:
- * 1. CAPI endpoint is a simulation (no real server-side implementation)
- * 2. No event_id matching between pixel and CAPI events
- * 3. Missing user_data fields (client_ip_address, client_user_agent, fbc, fbp)
- * 4. No hashing of PII data before sending
- * 5. action_source not always set correctly
- * 6. Missing opt_out field
- * 7. No retry logic for failed CAPI calls
- * 8. No batching of CAPI events
+ * Near-best-practice implementation with:
+ * - Real pixel ID with advanced matching
+ * - event_id for pixel/CAPI deduplication
+ * - SHA-256 hashing of PII
+ * - fbc/fbp cookie capture
+ * - Complete event parameters
+ * - data_processing_options for compliance
+ * - Search event implemented
  */
 
 declare global {
@@ -32,251 +19,179 @@ declare global {
 }
 
 const PIXEL_ID = '1684145446350033';
+const CAPI_ACCESS_TOKEN = 'EAAEDq1LHx1gBRPAEq5cUOKS5JrrvMif65SN8ysCUrX5t0SUZB3ETInM6Pt71VHea0bowwEehinD0oZAeSmIPWivziiVu0FuEIcsmgvT3fiqZADKQDiFgKdsugONbJXELgvLuQxHT0krELKt3DPhm0EyUa44iXu8uaZBZBddgVmEnFdNMBmsWmYJdOT17DTitYKwZDZD';
 
 // ============================================================
-// PIXEL EVENTS (Browser-side)
+// UTILITY FUNCTIONS
 // ============================================================
 
-/**
- * Track a standard pixel event
- * IMPROVEMENT: Should include event_id for deduplication
- */
-export function trackPixelEvent(eventName: string, params?: Record<string, unknown>) {
+function generateEventId(): string {
+  return 'eid_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11);
+}
+
+function getCookie(name: string): string | undefined {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? decodeURIComponent(match[2]) : undefined;
+}
+
+async function hashSHA256(value: string): Promise<string> {
+  if (!value || value.trim() === '') return '';
+  const normalized = value.toLowerCase().trim();
+  const encoder = new TextEncoder();
+  const data = encoder.encode(normalized);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+let _userData: {
+  em?: string; ph?: string; fn?: string; ln?: string;
+  ct?: string; st?: string; zp?: string; external_id?: string;
+} = {};
+
+export function setUserData(data: {
+  email?: string; phone?: string; firstName?: string; lastName?: string;
+  city?: string; state?: string; zipCode?: string; externalId?: string;
+}) {
+  if (data.email) _userData.em = data.email;
+  if (data.phone) _userData.ph = data.phone;
+  if (data.firstName) _userData.fn = data.firstName;
+  if (data.lastName) _userData.ln = data.lastName;
+  if (data.city) _userData.ct = data.city;
+  if (data.state) _userData.st = data.state;
+  if (data.zipCode) _userData.zp = data.zipCode;
+  if (data.externalId) _userData.external_id = data.externalId;
+}
+
+// ============================================================
+// PIXEL EVENTS
+// ============================================================
+
+export function trackPixelEvent(eventName: string, params?: Record<string, unknown>): string {
+  const eventId = generateEventId();
   if (typeof window !== 'undefined' && window.fbq) {
-    window.fbq('track', eventName, params);
-    console.log(`[Meta Pixel] Tracked: ${eventName}`, params);
+    window.fbq('track', eventName, params, { eventID: eventId });
+    console.log(`[Meta Pixel] Tracked: ${eventName} (event_id: ${eventId})`, params);
   }
+  return eventId;
 }
 
-/**
- * Track a custom pixel event
- */
-export function trackCustomEvent(eventName: string, params?: Record<string, unknown>) {
+export function trackCustomEvent(eventName: string, params?: Record<string, unknown>): string {
+  const eventId = generateEventId();
   if (typeof window !== 'undefined' && window.fbq) {
-    window.fbq('trackCustom', eventName, params);
-    console.log(`[Meta Pixel] Custom tracked: ${eventName}`, params);
+    window.fbq('trackCustom', eventName, params, { eventID: eventId });
+    console.log(`[Meta Pixel] Custom tracked: ${eventName} (event_id: ${eventId})`, params);
   }
+  return eventId;
 }
 
-/**
- * Track ViewContent event when a user views a product
- * IMPROVEMENT OPPORTUNITIES:
- * - Missing content_name parameter
- * - Missing content_category parameter
- * - No event_id for CAPI deduplication
- */
-export function trackViewContent(productId: string, productName: string, value: number, currency: string) {
-  trackPixelEvent('ViewContent', {
-    content_ids: [productId],
-    content_type: 'product',
-    value: value,
-    currency: currency,
-    // MISSING: content_name — should be productName
-    // MISSING: content_category
-  });
-
-  // CAPI call — but missing event_id for deduplication
-  sendCAPIEvent('ViewContent', {
-    content_ids: [productId],
-    content_type: 'product',
-    value: value,
-    currency: currency,
-  });
+export function trackViewContent(productId: string, productName: string, value: number, currency: string, category?: string) {
+  const params = {
+    content_ids: [productId], content_type: 'product', content_name: productName,
+    content_category: category || 'Uncategorized', value, currency,
+  };
+  const eventId = trackPixelEvent('ViewContent', params);
+  sendCAPIEvent('ViewContent', params, eventId);
 }
 
-/**
- * Track AddToCart event
- * IMPROVEMENT OPPORTUNITIES:
- * - No event_id for deduplication
- * - Missing num_items parameter
- */
 export function trackAddToCart(productId: string, productName: string, value: number, currency: string, quantity: number) {
-  trackPixelEvent('AddToCart', {
-    content_ids: [productId],
-    content_type: 'product',
-    value: value,
-    currency: currency,
-    // MISSING: content_name
-    // MISSING: num_items — should be quantity
-  });
-
-  sendCAPIEvent('AddToCart', {
-    content_ids: [productId],
-    content_type: 'product',
-    value: value,
-    currency: currency,
-  });
+  const params = {
+    content_ids: [productId], content_type: 'product', content_name: productName,
+    value, currency, num_items: quantity,
+  };
+  const eventId = trackPixelEvent('AddToCart', params);
+  sendCAPIEvent('AddToCart', params, eventId);
 }
 
-/**
- * Track InitiateCheckout event
- * IMPROVEMENT OPPORTUNITIES:
- * - Missing content_ids (should list all items in cart)
- * - Missing num_items
- * - No event_id
- */
-export function trackInitiateCheckout(value: number, currency: string, numItems: number) {
-  trackPixelEvent('InitiateCheckout', {
-    value: value,
-    currency: currency,
-    // MISSING: content_ids — should list all product IDs in cart
-    // MISSING: num_items — should be numItems
-    // MISSING: content_type
-  });
-
-  sendCAPIEvent('InitiateCheckout', {
-    value: value,
-    currency: currency,
-  });
+export function trackInitiateCheckout(value: number, currency: string, numItems: number, contentIds?: string[]) {
+  const params = {
+    value, currency, num_items: numItems,
+    content_ids: contentIds || [], content_type: 'product',
+  };
+  const eventId = trackPixelEvent('InitiateCheckout', params);
+  sendCAPIEvent('InitiateCheckout', params, eventId);
 }
 
-/**
- * Track Purchase event
- * IMPROVEMENT OPPORTUNITIES:
- * - Missing content_ids (critical for dynamic ads)
- * - Missing content_type
- * - Missing num_items
- * - No event_id for deduplication
- */
-export function trackPurchase(value: number, currency: string, contentIds?: string[]) {
-  trackPixelEvent('Purchase', {
-    value: value,
-    currency: currency,
-    // PARTIALLY MISSING: content_ids only sometimes passed
-    // MISSING: content_type — should be 'product'
-    // MISSING: num_items
-    ...(contentIds ? { content_ids: contentIds } : {}),
-  });
-
-  sendCAPIEvent('Purchase', {
-    value: value,
-    currency: currency,
-    ...(contentIds ? { content_ids: contentIds } : {}),
-  });
+export function trackPurchase(value: number, currency: string, contentIds: string[], numItems?: number) {
+  const params = {
+    value, currency, content_ids: contentIds,
+    content_type: 'product', num_items: numItems || contentIds.length,
+  };
+  const eventId = trackPixelEvent('Purchase', params);
+  sendCAPIEvent('Purchase', params, eventId);
 }
 
-/**
- * Track Lead event (contact form, newsletter, etc.)
- * IMPROVEMENT OPPORTUNITIES:
- * - Missing value and currency (recommended for optimization)
- * - No user data passed for matching
- */
-export function trackLead(formType?: string) {
-  trackPixelEvent('Lead', {
-    // MISSING: value — recommended for lead value optimization
-    // MISSING: currency
-    ...(formType ? { content_name: formType } : {}),
-  });
-
-  sendCAPIEvent('Lead', {
-    ...(formType ? { content_name: formType } : {}),
-  });
+export function trackLead(formType?: string, value?: number, currency?: string) {
+  const params = { content_name: formType || 'lead_form', value: value || 0, currency: currency || 'USD' };
+  const eventId = trackPixelEvent('Lead', params);
+  sendCAPIEvent('Lead', params, eventId);
 }
 
-/**
- * Track CompleteRegistration event
- * IMPROVEMENT OPPORTUNITIES:
- * - Missing value parameter
- * - Missing currency parameter
- * - No user data for advanced matching
- */
-export function trackCompleteRegistration(method?: string) {
-  trackPixelEvent('CompleteRegistration', {
-    // MISSING: value
-    // MISSING: currency
-    // MISSING: content_name — should describe registration type
-    ...(method ? { status: method } : {}),
-  });
-
-  sendCAPIEvent('CompleteRegistration', {
-    ...(method ? { status: method } : {}),
-  });
+export function trackCompleteRegistration(method?: string, value?: number, currency?: string) {
+  const params = { content_name: 'registration', status: method || 'complete', value: value || 0, currency: currency || 'USD' };
+  const eventId = trackPixelEvent('CompleteRegistration', params);
+  sendCAPIEvent('CompleteRegistration', params, eventId);
 }
 
-/**
- * Track Contact event
- * IMPROVEMENT: Should include value for lead scoring
- */
-export function trackContact() {
-  trackPixelEvent('Contact', {
-    // MISSING: value
-    // MISSING: currency
-  });
+export function trackContact(formType?: string) {
+  const params = { content_name: formType || 'contact_form' };
+  const eventId = trackPixelEvent('Contact', params);
+  sendCAPIEvent('Contact', params, eventId);
+}
 
-  sendCAPIEvent('Contact', {});
+export function trackSearch(searchString: string, contentIds?: string[], value?: number, currency?: string) {
+  const params = {
+    search_string: searchString, content_ids: contentIds || [],
+    content_type: 'product', value: value || 0, currency: currency || 'USD',
+  };
+  const eventId = trackPixelEvent('Search', params);
+  sendCAPIEvent('Search', params, eventId);
 }
 
 // ============================================================
-// CONVERSIONS API (Simulated Server-Side)
+// CONVERSIONS API
 // ============================================================
 
-/**
- * Simulated CAPI event sender
- * 
- * INTENTIONAL GAPS:
- * 1. This runs client-side — real CAPI should be server-side
- * 2. No event_id for deduplication with pixel events
- * 3. Missing user_data: client_ip_address, client_user_agent, fbc, fbp cookies
- * 4. PII data (email, phone) not hashed with SHA-256
- * 5. No retry logic on failure
- * 6. No batching — sends events one at a time
- * 7. action_source hardcoded — should vary by context
- * 8. Missing data_processing_options for CCPA/GDPR compliance
- */
-interface CAPIEventData {
-  [key: string]: unknown;
-}
+interface CAPIEventData { [key: string]: unknown; }
 
-function sendCAPIEvent(eventName: string, eventData: CAPIEventData) {
-  const payload = {
-    data: [{
-      event_name: eventName,
-      event_time: Math.floor(Date.now() / 1000),
-      // IMPROVEMENT: Should include event_id matching the pixel event_id
-      // event_id: generateEventId(),
-      action_source: 'website', // IMPROVEMENT: Should vary (website, app, email, etc.)
-      event_source_url: window.location.href,
-      user_data: {
-        // IMPROVEMENT: Should include these fields:
-        // client_ip_address: '', // Must be set server-side
-        // client_user_agent: navigator.userAgent, // Should be set server-side
-        // fbc: getCookie('_fbc'), // Click ID cookie
-        // fbp: getCookie('_fbp'), // Browser ID cookie
-        // em: '', // Hashed email
-        // ph: '', // Hashed phone
-        // fn: '', // Hashed first name
-        // ln: '', // Hashed last name
-        // external_id: '', // Your user ID, hashed
-      },
-      custom_data: eventData,
-      // MISSING: data_processing_options for CCPA compliance
-      // MISSING: data_processing_options_country
-      // MISSING: data_processing_options_state
-      // MISSING: opt_out field
-    }],
-    // IMPROVEMENT: Should use real access token
-    access_token: 'PLACEHOLDER_ACCESS_TOKEN',
+async function sendCAPIEvent(eventName: string, eventData: CAPIEventData, eventId: string) {
+  const userData: Record<string, unknown> = {
+    client_user_agent: navigator.userAgent,
+    fbc: getCookie('_fbc') || undefined,
+    fbp: getCookie('_fbp') || undefined,
   };
 
-  // Simulated CAPI call — in production this should be a server-side POST to:
-  // https://graph.facebook.com/v18.0/{PIXEL_ID}/events
-  const capiEndpoint = `https://graph.facebook.com/v18.0/${PIXEL_ID}/events`;
-  
-  // Log the simulated CAPI call (not actually sending to avoid errors with placeholder token)
-  console.log(`[CAPI Simulation] Would POST to: ${capiEndpoint}`);
-  console.log(`[CAPI Simulation] Payload:`, JSON.stringify(payload, null, 2));
-  
-  // IMPROVEMENT: Real implementation would be:
-  // fetch(capiEndpoint, {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify(payload),
-  // }).catch(err => console.error('[CAPI] Failed:', err));
-  // 
-  // But this should actually be done SERVER-SIDE, not client-side
-}
+  if (_userData.em) userData.em = [await hashSHA256(_userData.em)];
+  if (_userData.ph) userData.ph = [await hashSHA256(_userData.ph)];
+  if (_userData.fn) userData.fn = [await hashSHA256(_userData.fn)];
+  if (_userData.ln) userData.ln = [await hashSHA256(_userData.ln)];
+  if (_userData.ct) userData.ct = [await hashSHA256(_userData.ct)];
+  if (_userData.st) userData.st = [await hashSHA256(_userData.st)];
+  if (_userData.zp) userData.zp = [await hashSHA256(_userData.zp)];
+  if (_userData.external_id) userData.external_id = [await hashSHA256(_userData.external_id)];
 
-// IMPROVEMENT: Should implement these helper functions:
-// function generateEventId(): string { ... }
-// function getCookie(name: string): string { ... }
-// function hashSHA256(value: string): string { ... }
+  Object.keys(userData).forEach(key => { if (userData[key] === undefined) delete userData[key]; });
+
+  const payload = {
+    data: [{
+      event_name: eventName, event_time: Math.floor(Date.now() / 1000),
+      event_id: eventId, action_source: 'website', event_source_url: window.location.href,
+      user_data: userData, custom_data: eventData,
+      data_processing_options: [], data_processing_options_country: 0, data_processing_options_state: 0,
+    }],
+    access_token: CAPI_ACCESS_TOKEN,
+  };
+
+  const capiEndpoint = `https://graph.facebook.com/v21.0/${PIXEL_ID}/events`;
+
+  try {
+    const response = await fetch(capiEndpoint, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    console.log(`[CAPI] Sent ${eventName} (event_id: ${eventId}):`, result);
+  } catch (err) {
+    console.error(`[CAPI] Failed to send ${eventName}:`, err);
+  }
+}
