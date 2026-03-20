@@ -5,19 +5,27 @@
   - Lead with value and currency
 */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trackCompleteRegistration, trackLead, setUserData } from "@/lib/meta-pixel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, RefreshCw } from "lucide-react";
+import { generateFakeRegisterData } from "@/lib/fake-data";
 import { toast } from "sonner";
 
 export default function Register() {
   const [submitted, setSubmitted] = useState(false);
   const [formData, setFormData] = useState({ firstName: "", lastName: "", email: "", phone: "", password: "" });
+
+  useEffect(() => { fillRandom(); }, []);
+
+  const fillRandom = () => {
+    const fake = generateFakeRegisterData();
+    setFormData({ firstName: fake.firstName, lastName: fake.lastName, email: fake.email, phone: fake.phone, password: fake.password });
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -66,6 +74,7 @@ export default function Register() {
           <p className="text-muted-foreground">Join Elevé for exclusive access to new collections, early releases, and member-only offers.</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="flex justify-end"><Button type="button" variant="outline" size="sm" onClick={fillRandom} className="gap-1.5 text-xs"><RefreshCw size={12} />Randomize Data</Button></div>
           <div className="grid grid-cols-2 gap-4">
             <div><Label htmlFor="firstName">First Name</Label><Input id="firstName" name="firstName" required value={formData.firstName} onChange={handleChange} className="mt-1.5" /></div>
             <div><Label htmlFor="lastName">Last Name</Label><Input id="lastName" name="lastName" required value={formData.lastName} onChange={handleChange} className="mt-1.5" /></div>

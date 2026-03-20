@@ -5,7 +5,7 @@
   - Lead event with value and currency
 */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useCart } from "@/contexts/CartContext";
 import { trackPurchase, trackLead, setUserData } from "@/lib/meta-pixel";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { CheckCircle, ArrowLeft } from "lucide-react";
+import { CheckCircle, ArrowLeft, RefreshCw } from "lucide-react";
+import { generateFakeCheckoutData } from "@/lib/fake-data";
 
 export default function Checkout() {
   const { items, totalPrice, totalItems, clearCart } = useCart();
@@ -22,6 +23,14 @@ export default function Checkout() {
     email: "", firstName: "", lastName: "", address: "",
     city: "", state: "", zip: "", phone: "",
   });
+
+  // Auto-fill with random fake data on mount
+  useEffect(() => { fillRandom(); }, []);
+
+  const fillRandom = () => {
+    const fake = generateFakeCheckoutData();
+    setFormData({ email: fake.email, firstName: fake.firstName, lastName: fake.lastName, address: fake.address, city: fake.city, state: fake.state, zip: fake.zip, phone: fake.phone });
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -82,7 +91,10 @@ export default function Checkout() {
         <Link href="/shop" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors mb-8">
           <ArrowLeft size={14} />Continue Shopping
         </Link>
-        <h1 className="text-3xl lg:text-4xl mb-10">Checkout</h1>
+        <div className="flex items-center justify-between mb-10">
+          <h1 className="text-3xl lg:text-4xl">Checkout</h1>
+          <Button variant="outline" size="sm" onClick={fillRandom} className="gap-1.5 text-xs"><RefreshCw size={12} />Randomize Data</Button>
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-12">
           <motion.form initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} onSubmit={handleSubmit} className="lg:col-span-3 space-y-8">
             <div>

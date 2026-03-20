@@ -5,18 +5,26 @@
   - Lead event with value and currency
 */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trackContact, trackLead, setUserData } from "@/lib/meta-pixel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
-import { CheckCircle, Mail, MapPin, Phone } from "lucide-react";
+import { CheckCircle, Mail, MapPin, Phone, RefreshCw } from "lucide-react";
+import { generateFakeContactData } from "@/lib/fake-data";
 import { toast } from "sonner";
 
 export default function Contact() {
   const [submitted, setSubmitted] = useState(false);
   const [formData, setFormData] = useState({ name: "", email: "", subject: "", message: "" });
+
+  useEffect(() => { fillRandom(); }, []);
+
+  const fillRandom = () => {
+    const fake = generateFakeContactData();
+    setFormData({ name: `${fake.firstName} ${fake.lastName}`, email: fake.email, subject: "Product inquiry", message: fake.message });
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -77,6 +85,7 @@ export default function Contact() {
               <div className="pt-4 border-t border-border"><h3 className="text-sm font-semibold mb-2">Hours</h3><p className="text-sm text-muted-foreground">Monday – Friday: 9am – 6pm PST<br />Saturday: 10am – 4pm PST<br />Sunday: Closed</p></div>
             </motion.div>
             <motion.form initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6, delay: 0.2 }} onSubmit={handleSubmit} className="lg:col-span-3 space-y-6">
+              <div className="flex justify-end"><Button type="button" variant="outline" size="sm" onClick={fillRandom} className="gap-1.5 text-xs"><RefreshCw size={12} />Randomize Data</Button></div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label htmlFor="name">Full Name</Label><Input id="name" name="name" required value={formData.name} onChange={handleChange} placeholder="Jane Doe" className="mt-1.5" /></div>
                 <div><Label htmlFor="email">Email</Label><Input id="email" name="email" type="email" required value={formData.email} onChange={handleChange} placeholder="jane@example.com" className="mt-1.5" /></div>
