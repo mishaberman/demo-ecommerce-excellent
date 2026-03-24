@@ -4,11 +4,17 @@
  * Near-best-practice implementation with:
  * - Real pixel ID with advanced matching
  * - event_id for pixel/CAPI deduplication
- * - SHA-256 hashing of PII
- * - fbc/fbp cookie capture
+ * - Server-side CAPI via backend proxy (access token NOT exposed client-side)
+ * - fbc/fbp cookie capture sent to server for enrichment
  * - Complete event parameters
  * - data_processing_options for compliance
  * - Search event implemented
+ * - Server handles: SHA-256 hashing, IP extraction, user agent injection
+ * 
+ * CAPI METHOD: Server-Side Proxy
+ *   Frontend sends raw PII + event data to backend CAPI proxy.
+ *   Backend handles hashing, IP/UA enrichment, and forwards to Meta Graph API.
+ *   Access token is stored server-side only — never exposed to the browser.
  */
 
 declare global {
@@ -19,29 +25,25 @@ declare global {
 }
 
 const PIXEL_ID = '1684145446350033';
-const CAPI_ACCESS_TOKEN = 'EAAEDq1LHx1gBRPAEq5cUOKS5JrrvMif65SN8ysCUrX5t0SUZB3ETInM6Pt71VHea0bowwEehinD0oZAeSmIPWivziiVu0FuEIcsmgvT3fiqZADKQDiFgKdsugONbJXELgvLuQxHT0krELKt3DPhm0EyUa44iXu8uaZBZBddgVmEnFdNMBmsWmYJdOT17DTitYKwZDZD';
+
+// CAPI Backend Proxy URL — access token is stored server-side only
+const CAPI_PROXY_URL = 'https://demoshop-fpx9kus8.manus.space/api/capi/event';
 
 // ============================================================
 // UTILITY FUNCTIONS
 // ============================================================
 
 function generateEventId(): string {
+  // Use crypto.randomUUID when available for stronger uniqueness
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return 'eid_' + crypto.randomUUID();
+  }
   return 'eid_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11);
 }
 
 function getCookie(name: string): string | undefined {
   const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
   return match ? decodeURIComponent(match[2]) : undefined;
-}
-
-async function hashSHA256(value: string): Promise<string> {
-  if (!value || value.trim() === '') return '';
-  const normalized = value.toLowerCase().trim();
-  const encoder = new TextEncoder();
-  const data = encoder.encode(normalized);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 let _userData: {
@@ -149,49 +151,71 @@ export function trackSearch(searchString: string, contentIds?: string[], value?:
 }
 
 // ============================================================
-// CONVERSIONS API
+// CONVERSIONS API — Server-Side Proxy
 // ============================================================
 
 interface CAPIEventData { [key: string]: unknown; }
 
+/**
+ * Send event to the backend CAPI proxy server.
+ * 
+ * The backend handles:
+ * - SHA-256 hashing of all PII (em, ph, fn, ln, ct, st, zp)
+ * - Injection of client_ip_address from request headers
+ * - Injection of client_user_agent from request headers
+ * - Secure storage of access_token (never exposed to browser)
+ * - Forwarding to Meta Graph API
+ * 
+ * The frontend sends:
+ * - Raw (unhashed) PII for server-side hashing
+ * - fbc/fbp cookies for identity matching
+ * - event_id for deduplication with pixel events
+ * - data_processing_options for CCPA/GDPR compliance
+ */
 async function sendCAPIEvent(eventName: string, eventData: CAPIEventData, eventId: string) {
+  // Build user_data with raw PII — server will hash it
   const userData: Record<string, unknown> = {
-    client_user_agent: navigator.userAgent,
+    // fbc and fbp cookies for identity matching
     fbc: getCookie('_fbc') || undefined,
     fbp: getCookie('_fbp') || undefined,
   };
 
-  if (_userData.em) userData.em = [await hashSHA256(_userData.em)];
-  if (_userData.ph) userData.ph = [await hashSHA256(_userData.ph)];
-  if (_userData.fn) userData.fn = [await hashSHA256(_userData.fn)];
-  if (_userData.ln) userData.ln = [await hashSHA256(_userData.ln)];
-  if (_userData.ct) userData.ct = [await hashSHA256(_userData.ct)];
-  if (_userData.st) userData.st = [await hashSHA256(_userData.st)];
-  if (_userData.zp) userData.zp = [await hashSHA256(_userData.zp)];
-  if (_userData.external_id) userData.external_id = [await hashSHA256(_userData.external_id)];
+  // Send raw PII — the server will normalize and SHA-256 hash these
+  if (_userData.em) userData.em = _userData.em;
+  if (_userData.ph) userData.ph = _userData.ph;
+  if (_userData.fn) userData.fn = _userData.fn;
+  if (_userData.ln) userData.ln = _userData.ln;
+  if (_userData.ct) userData.ct = _userData.ct;
+  if (_userData.st) userData.st = _userData.st;
+  if (_userData.zp) userData.zp = _userData.zp;
+  if (_userData.external_id) userData.external_id = _userData.external_id;
 
+  // Remove undefined values
   Object.keys(userData).forEach(key => { if (userData[key] === undefined) delete userData[key]; });
 
   const payload = {
-    data: [{
-      event_name: eventName, event_time: Math.floor(Date.now() / 1000),
-      event_id: eventId, action_source: 'website', event_source_url: window.location.href,
-      user_data: userData, custom_data: eventData,
-      data_processing_options: [], data_processing_options_country: 0, data_processing_options_state: 0,
-    }],
-    access_token: CAPI_ACCESS_TOKEN,
+    event_name: eventName,
+    event_time: Math.floor(Date.now() / 1000),
+    event_id: eventId,
+    action_source: 'website',
+    event_source_url: window.location.href,
+    user_data: userData,
+    custom_data: eventData,
+    // CCPA/GDPR compliance — empty array means no restrictions
+    data_processing_options: [],
+    data_processing_options_country: 0,
+    data_processing_options_state: 0,
   };
 
-  const capiEndpoint = `https://graph.facebook.com/v21.0/${PIXEL_ID}/events`;
-
   try {
-    const response = await fetch(capiEndpoint, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const response = await fetch(CAPI_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     const result = await response.json();
-    console.log(`[CAPI] Sent ${eventName} (event_id: ${eventId}):`, result);
+    console.log(`[CAPI Server] Sent ${eventName} (event_id: ${eventId}):`, result);
   } catch (err) {
-    console.error(`[CAPI] Failed to send ${eventName}:`, err);
+    console.error(`[CAPI Server] Failed to send ${eventName}:`, err);
   }
 }
