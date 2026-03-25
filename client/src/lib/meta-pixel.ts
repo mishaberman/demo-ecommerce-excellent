@@ -299,6 +299,7 @@ async function sendCAPIEvent(eventName: string, eventData: CAPIEventData, eventI
     data_processing_options_state: 0,
   };
 
+  console.log(`[CAPI Server] Sending ${eventName} (event_id: ${eventId}) — payload:`, JSON.parse(JSON.stringify(payload)));
   try {
     const response = await fetch(CAPI_PROXY_URL, {
       method: 'POST',
@@ -306,7 +307,7 @@ async function sendCAPIEvent(eventName: string, eventData: CAPIEventData, eventI
       body: JSON.stringify(payload),
     });
     const result = await response.json();
-    console.log(`[CAPI Server] Sent ${eventName} (event_id: ${eventId}):`, result);
+    console.log(`[CAPI Server] ${eventName} (event_id: ${eventId}) — response:`, result);
   } catch (err) {
     console.error(`[CAPI Server] Failed to send ${eventName}:`, err);
   }
