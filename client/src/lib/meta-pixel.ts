@@ -299,15 +299,24 @@ async function sendCAPIEvent(eventName: string, eventData: CAPIEventData, eventI
     data_processing_options_state: 0,
   };
 
-  try {
-    const response = await fetch(CAPI_PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const result = await response.json();
-    console.log(`[CAPI Server] Sent ${eventName} (event_id: ${eventId}):`, result);
-  } catch (err) {
-    console.error(`[CAPI Server] Failed to send ${eventName}:`, err);
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(CAPI_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      console.log(`[CAPI Server] Sent ${eventName} (event_id: ${eventId}):`, result);
+      break; // Success — exit retry loop
+    } catch (err) {
+      if (attempt === MAX_RETRIES) {
+        console.error(`[CAPI Server] Failed to send ${eventName} after ${MAX_RETRIES + 1} attempts:`, err);
+      } else {
+        // Exponential backoff: 1s, 2s
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
   }
 }
