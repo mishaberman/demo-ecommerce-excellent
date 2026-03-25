@@ -37,6 +37,14 @@ const PIXEL_ID = '1684145446350033';
 // CAPI Backend Proxy URL — access token is stored server-side only
 const CAPI_PROXY_URL = 'https://meta-capi-proxy-tau.vercel.app/api/capi/event';
 
+/** Read test_event_code from URL param (e.g. ?test_event_code=TEST12345) */
+function getTestEventCode(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('test_event_code');
+  } catch { return null; }
+}
+
 // ============================================================
 // UTILITY FUNCTIONS
 // ============================================================
@@ -299,7 +307,13 @@ async function sendCAPIEvent(eventName: string, eventData: CAPIEventData, eventI
     data_processing_options_state: 0,
   };
 
-  console.log(`[CAPI Server] Sending ${eventName} (event_id: ${eventId}) — payload:`, JSON.parse(JSON.stringify(payload)));
+  // Include test_event_code if present in URL params
+  const testEventCode = getTestEventCode();
+  if (testEventCode) {
+    (payload as Record<string, unknown>).test_event_code = testEventCode;
+  }
+
+  console.log(`[CAPI Server] Sending ${eventName} (event_id: ${eventId})${testEventCode ? ` [TEST: ${testEventCode}]` : ''} — payload:`, JSON.parse(JSON.stringify(payload)));
   try {
     const response = await fetch(CAPI_PROXY_URL, {
       method: 'POST',
