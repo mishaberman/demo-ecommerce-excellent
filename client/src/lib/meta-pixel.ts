@@ -35,7 +35,7 @@ declare global {
 const PIXEL_ID = '1684145446350033';
 
 // CAPI Backend Proxy URL — access token is stored server-side only
-const CAPI_PROXY_URL = 'https://demoshop-fpx9kus8.manus.space/api/capi/event';
+const CAPI_PROXY_URL = 'https://meta-capi-proxy-tau.vercel.app/api/capi/event';
 
 // ============================================================
 // UTILITY FUNCTIONS
