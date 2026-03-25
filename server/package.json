@@ -1,0 +1,16 @@
+{
+  "name": "demo-ecommerce-excellent-capi-server",
+  "version": "1.0.0",
+  "description": "Server-side CAPI proxy for the Excellent demo e-commerce variant. Handles SHA-256 hashing, IP/UA enrichment, and event deduplication.",
+  "main": "capi-proxy.js",
+  "scripts": {
+    "start": "node capi-proxy.js",
+    "dev": "node --watch capi-proxy.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
